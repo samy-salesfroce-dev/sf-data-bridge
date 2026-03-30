@@ -55,10 +55,36 @@ def load_css():
 
 def main():
     load_css()
+    
+    # ---------------------------------------------
+    # APPLICATION LOGIN GATE
+    # ---------------------------------------------
+    if 'app_authenticated' not in st.session_state:
+        st.session_state.app_authenticated = False
+        
+    if not st.session_state.app_authenticated:
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown('<div class="premium-header" style="text-align: center; margin-top: 100px;">SF-Data-Bridge ⚡</div>', unsafe_allow_html=True)
+            st.markdown("### 🔒 Secure Admin Portal")
+            
+            with st.form("login_form"):
+                password = st.text_input("Enter Application Password", type="password")
+                if st.form_submit_button("Unlock Tools"):
+                    if password == os.environ.get("APP_PASSWORD", "admin123"):
+                        st.session_state.app_authenticated = True
+                        st.rerun()
+                    else:
+                        st.error("Access Denied: Incorrect Password.")
+        return # Block execution of the rest of the app
+
+    # ---------------------------------------------
+    # SECURE APPLICATION RENDERING
+    # ---------------------------------------------
     init_db() # Ensure DB is initialized
     
     st.markdown('<div class="premium-header">SF-Data-Bridge ⚡</div>', unsafe_allow_html=True)
-    st.markdown("### Professional Salesforce-to-Salesforce Migration Engine")
+    st.markdown("### Professional Salesforce-to-Salesforce Migration Engine (Cloud Version)")
     
     # Initialize session states
     if 'current_project_id' not in st.session_state:
