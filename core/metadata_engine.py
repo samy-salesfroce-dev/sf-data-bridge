@@ -1,0 +1,116 @@
+import pandas as pd
+import zipfile
+import tempfile
+import time
+import base64
+import os
+
+def get_object_fields(sf_instance, object_name):
+    """
+    Fetches the field describe for an object and returns a dictionary of field definitions.
+    """
+    try:
+        describe_res = getattr(sf_instance, object_name).describe()
+        return {f['name']: f for f in describe_res['fields']}
+    except Exception as e:
+        print(f"Error describing {object_name}: {e}")
+        return {}
+
+def compare_schemas(source_sf, target_sf, object_list):
+    """
+    Compares the schema between Source and Target for a list of objects.
+    Returns a Pandas DataFrame representing missing fields on the Target.
+    """
+    diff_data = []
+    
+    for obj in object_list:
+        src_fields = get_object_fields(source_sf, obj)
+        tgt_fields = get_object_fields(target_sf, obj)
+        
+        for field_name, src_attr in src_fields.items():
+            if field_name not in tgt_fields:
+                diff_data.append({
+                    "Object": obj,
+                    "Field Name": field_name,
+                    "Label": src_attr['label'],
+                    "Type": src_attr['type'],
+                    "Length": src_attr.get('length', ''),
+                    "Status": "Missing on Target"
+                })
+            else:
+                # Optionally check if length/type mismatches
+                tgt_attr = tgt_fields[field_name]
+                if src_attr['type'] != tgt_attr['type']:
+                    diff_data.append({
+                        "Object": obj,
+                        "Field Name": field_name,
+                        "Label": src_attr['label'],
+                        "Type": f"{src_attr['type']} -> {tgt_attr['type']}",
+                        "Status": "Type Mismatch"
+                    })
+    
+    return pd.DataFrame(diff_data)
+
+def deploy_external_id_field(target_sf, object_name):
+    """
+    Deploys the Migration_External_ID__c field to the specified Object on the Target Org
+    using the simple-salesforce mdapi wrapper.
+    """
+    field_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fields>
+        <fullName>Migration_External_ID__c</fullName>
+        <externalId>true</externalId>
+        <label>Migration External ID</label>
+        <length>255</length>
+        <required>false</required>
+        <trackTrending>false</trackTrending>
+        <type>Text</type>
+        <unique>true</unique>
+        <caseSensitive>false</caseSensitive>
+    </fields>
+</CustomObject>
+"""
+
+    package_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>*</members>
+        <name>CustomObject</name>
+    </types>
+    <version>58.0</version>
+</Package>
+"""
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create package struct
+        os.makedirs(os.path.join(temp_dir, 'objects'), exist_ok=True)
+        
+        # Write files
+        with open(os.path.join(temp_dir, 'package.xml'), 'w', encoding='utf-8') as f:
+            f.write(package_xml)
+        
+        with open(os.path.join(temp_dir, 'objects', f'{object_name}.object'), 'w', encoding='utf-8') as f:
+            f.write(field_xml)
+            
+        # Create zip
+        zip_path = os.path.join(temp_dir, 'package.zip')
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            zipf.write(os.path.join(temp_dir, 'package.xml'), 'package.xml')
+            zipf.write(os.path.join(temp_dir, 'objects', f'{object_name}.object'), f'objects/{object_name}.object')
+
+        # Deploy
+        # Determine if sandbox
+        is_sandbox = target_sf.query("SELECT IsSandbox FROM Organization LIMIT 1")['records'][0]['IsSandbox']
+        
+        # Note: mdapi.deploy returns an async ID. We need to wait for it.
+        deploy_result = target_sf.mdapi.deploy(zip_path, sandbox=is_sandbox, singlePackage=True, ignoreWarnings=True)
+        job_id = deploy_result.get('id')
+        
+        if job_id:
+            while True:
+                status = target_sf.mdapi.checkDeployStatus(job_id)
+                if status.get('done'):
+                    return status.get('success'), status.get('errorMessage')
+                time.sleep(2)
+        return False, "Deployment job failed to start."
