@@ -13,15 +13,36 @@ def render_page():
 
     # Add objects to Project
     st.subheader("Select Objects for Migration")
-    objects_input = st.text_input("Enter comma-separated API names (e.g., Account, Contact, Opportunity)")
     
-    if st.button("Add Objects"):
-        if objects_input:
-            obj_list = [o.strip() for o in objects_input.split(",")]
-            for obj in obj_list:
+    with st.spinner("Fetching Global Metadata..."):
+        if 'global_objects' not in st.session_state:
+            global_describe = st.session_state.source_sf.describe()
+            st.session_state.global_objects = sorted([obj['name'] for obj in global_describe['sobjects']])
+            
+    all_objects = st.session_state.global_objects
+    custom_objects = [obj for obj in all_objects if obj.endswith('__c')]
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Select All Custom Objects"):
+            st.session_state.obj_selection = custom_objects
+    with col2:
+        if st.button("Clear Selection"):
+            st.session_state.obj_selection = []
+            
+    if 'obj_selection' not in st.session_state:
+        st.session_state.obj_selection = []
+        
+    selected_objects = st.multiselect("Select Objects", options=all_objects, key="obj_selection")
+    
+    if st.button("Add Checked Objects to Project"):
+        if selected_objects:
+            for obj in selected_objects:
                 add_project_object(st.session_state.current_project_id, obj)
-            st.success(f"Added {len(obj_list)} objects to project!")
-            st.session_state.selected_objects = obj_list
+            st.success(f"Added {len(selected_objects)} objects to project!")
+            st.session_state.selected_objects = selected_objects
+        else:
+            st.warning("Please select at least one object.")
     
     # Run Schema Diff
     if hasattr(st.session_state, 'selected_objects'):
