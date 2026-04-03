@@ -168,7 +168,8 @@ def deploy_selected_metadata(source_sf, target_sf, selected_rows):
                 "Metadata": metadata
             }
             
-            target_sf.toolingexecute('sobjects/CustomField/', method='POST', data=payload)
+            # Use json= instead of data= to ensure application/json content type
+            target_sf.toolingexecute('sobjects/CustomField/', method='POST', json=payload)
             success_count += 1
             
         except Exception as e:
