@@ -30,23 +30,27 @@ def compare_schemas(source_sf, target_sf, object_list):
         for field_name, src_attr in src_fields.items():
             if field_name not in tgt_fields:
                 diff_data.append({
+                    "Deploy": False,
                     "Object": obj,
                     "Field Name": field_name,
                     "Label": src_attr['label'],
                     "Type": src_attr['type'],
                     "Length": src_attr.get('length', ''),
-                    "Status": "Missing on Target"
+                    "Status": "Missing on Target",
+                    "Is_Custom": field_name.endswith('__c')
                 })
             else:
                 # Optionally check if length/type mismatches
                 tgt_attr = tgt_fields[field_name]
                 if src_attr['type'] != tgt_attr['type']:
                     diff_data.append({
+                        "Deploy": False,
                         "Object": obj,
                         "Field Name": field_name,
                         "Label": src_attr['label'],
                         "Type": f"{src_attr['type']} -> {tgt_attr['type']}",
-                        "Status": "Type Mismatch"
+                        "Status": "Type Mismatch",
+                        "Is_Custom": False # Can't deploy standard type mismatches via tooling
                     })
     
     return pd.DataFrame(diff_data)
@@ -126,3 +130,48 @@ def deploy_external_id_field(target_sf, object_name):
                     return success, err_msg
                 time.sleep(2)
         return False, "Deployment job failed to start."
+
+def deploy_selected_metadata(source_sf, target_sf, selected_rows):
+    """
+    Deploys selected custom fields from Source to Target using Tooling API.
+    """
+    success_count = 0
+    errors = []
+    
+    for row in selected_rows:
+        if not row.get('Deploy') or not row.get('Is_Custom'):
+            continue
+            
+        obj = row['Object']
+        field = row['Field Name']
+        
+        try:
+            # 1. Fetch Metadata from Source
+            dev_name = field.replace('__c', '')
+            # Tooling API query needs to be URL encoded or handled by tooling_execute logic
+            # simple-salesforce toolingexecute doesn't automatically urlencode the 'action' string if it's a query
+            query = f"SELECT Metadata FROM CustomField WHERE DeveloperName='{dev_name}' AND TableEnumOrId='{obj}'"
+            encoded_query = query.replace(' ', '+').replace("'", "%27")
+            res = source_sf.toolingexecute(f"query?q={encoded_query}")
+            
+            if not res.get('records'):
+                errors.append(f"Field {field} on {obj}: Not found in Source Tooling metadata.")
+                continue
+                
+            metadata = res['records'][0]['Metadata']
+            
+            # 2. Deploy to Target
+            full_name = f"{obj}.{field}"
+            # Tooling API POST for CustomField
+            payload = {
+                "FullName": full_name,
+                "Metadata": metadata
+            }
+            
+            target_sf.toolingexecute('sobjects/CustomField/', method='POST', data=payload)
+            success_count += 1
+            
+        except Exception as e:
+            errors.append(f"Field {field} on {obj}: {str(e)}")
+            
+    return success_count, errors
