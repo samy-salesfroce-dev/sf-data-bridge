@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from core.metadata_engine import compare_schemas, deploy_external_id_field
+from core.metadata_engine import compare_schemas, deploy_external_id_field, deploy_selected_metadata
 from database.db_handler import add_project_object
 
 def render_page():
@@ -49,11 +49,56 @@ def render_page():
         if st.button("Run Schema Diff"):
             with st.spinner("Analyzing Describe Metadata..."):
                 diff_df = compare_schemas(st.session_state.source_sf, st.session_state.target_sf, st.session_state.selected_objects)
-                if diff_df.empty:
-                    st.success("Schemas match perfectly! You are Ready to Migrate.")
-                else:
-                    st.warning(f"Found {len(diff_df)} schema blockers.")
-                    st.dataframe(diff_df, width='stretch')
+                st.session_state.diff_df = diff_df
+        
+        if 'diff_df' in st.session_state:
+            if st.session_state.diff_df.empty:
+                st.success("Schemas match perfectly! You are Ready to Migrate.")
+            else:
+                st.warning(f"Found {len(st.session_state.diff_df)} differences. Select components to deploy.")
+                
+                # Interactive Deployment Table
+                edited_df = st.data_editor(
+                    st.session_state.diff_df,
+                    column_config={
+                        "Deploy": st.column_config.CheckboxColumn(
+                            "Deploy?",
+                            help="Select to deploy this metadata component",
+                            default=False,
+                        ),
+                        "Is_Custom": st.column_config.CheckboxColumn(
+                            "Custom?",
+                            disabled=True
+                        )
+                    },
+                    disabled=["Object", "Field Name", "Label", "Type", "Length", "Status", "Is_Custom"],
+                    hide_index=True,
+                    width='stretch',
+                    key="metadata_editor"
+                )
+                
+                if st.button("Deploy Selected Metadata"):
+                    selected_rows = edited_df[edited_df["Deploy"] == True].to_dict('records')
+                    if not selected_rows:
+                        st.warning("Please select at least one component to deploy.")
+                    else:
+                        with st.spinner("Deploying via Tooling API..."):
+                            success_count, errors = deploy_selected_metadata(
+                                st.session_state.source_sf, 
+                                st.session_state.target_sf, 
+                                selected_rows
+                            )
+                            
+                            if success_count > 0:
+                                st.success(f"Successfully deployed {success_count} components!")
+                            
+                            if errors:
+                                for err in errors:
+                                    st.error(err)
+                                    
+                            # Clear results to force refresh on next run
+                            if success_count > 0:
+                                st.info("Re-run 'Schema Diff' to verify changes.")
 
         st.markdown("---")
         st.subheader("Universal Hierarchical Strategy")
