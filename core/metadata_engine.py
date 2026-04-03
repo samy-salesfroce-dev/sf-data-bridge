@@ -1,128 +1,69 @@
+import streamlit as st
 import pandas as pd
-import zipfile
-import tempfile
-import time
-import base64
-import os
+from core.metadata_engine import compare_schemas, deploy_external_id_field
+from database.db_handler import add_project_object
 
-def get_object_fields(sf_instance, object_name):
-    """
-    Fetches the field describe for an object and returns a dictionary of field definitions.
-    """
-    try:
-        describe_res = getattr(sf_instance, object_name).describe()
-        return {f['name']: f for f in describe_res['fields']}
-    except Exception as e:
-        print(f"Error describing {object_name}: {e}")
-        return {}
+def render_page():
+    st.header("2. Metadata & Schema Diff")
+    st.markdown("Compare Source and Target object schemas to identify missing fields and type mismatches.")
 
-def compare_schemas(source_sf, target_sf, object_list):
-    """
-    Compares the schema between Source and Target for a list of objects.
-    Returns a Pandas DataFrame representing missing fields on the Target.
-    """
-    diff_data = []
+    if not st.session_state.source_sf or not st.session_state.target_sf:
+        st.warning("Please connect to both Source and Target Orgs in 'Project Setup & Auth'.")
+        return
+
+    # Add objects to Project
+    st.subheader("Select Objects for Migration")
     
-    for obj in object_list:
-        src_fields = get_object_fields(source_sf, obj)
-        tgt_fields = get_object_fields(target_sf, obj)
-        
-        for field_name, src_attr in src_fields.items():
-            if field_name not in tgt_fields:
-                diff_data.append({
-                    "Object": obj,
-                    "Field Name": field_name,
-                    "Label": src_attr['label'],
-                    "Type": src_attr['type'],
-                    "Length": src_attr.get('length', ''),
-                    "Status": "Missing on Target"
-                })
-            else:
-                # Optionally check if length/type mismatches
-                tgt_attr = tgt_fields[field_name]
-                if src_attr['type'] != tgt_attr['type']:
-                    diff_data.append({
-                        "Object": obj,
-                        "Field Name": field_name,
-                        "Label": src_attr['label'],
-                        "Type": f"{src_attr['type']} -> {tgt_attr['type']}",
-                        "Status": "Type Mismatch"
-                    })
-    
-    return pd.DataFrame(diff_data)
-
-def deploy_external_id_field(target_sf, object_name):
-    """
-    Deploys the Migration_External_ID__c field to the specified Object on the Target Org
-    using the simple-salesforce mdapi wrapper.
-    """
-    field_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
-    <fields>
-        <fullName>Migration_External_ID__c</fullName>
-        <externalId>true</externalId>
-        <label>Migration External ID</label>
-        <length>255</length>
-        <required>false</required>
-        <trackTrending>false</trackTrending>
-        <type>Text</type>
-        <unique>true</unique>
-        <caseSensitive>false</caseSensitive>
-    </fields>
-</CustomObject>
-"""
-
-    package_xml = """<?xml version="1.0" encoding="UTF-8"?>
-<Package xmlns="http://soap.sforce.com/2006/04/metadata">
-    <types>
-        <members>*</members>
-        <name>CustomObject</name>
-    </types>
-    <version>58.0</version>
-</Package>
-"""
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Create package struct
-        os.makedirs(os.path.join(temp_dir, 'objects'), exist_ok=True)
-        
-        # Write files
-        with open(os.path.join(temp_dir, 'package.xml'), 'w', encoding='utf-8') as f:
-            f.write(package_xml)
-        
-        with open(os.path.join(temp_dir, 'objects', f'{object_name}.object'), 'w', encoding='utf-8') as f:
-            f.write(field_xml)
+    with st.spinner("Fetching Global Metadata..."):
+        if 'global_objects' not in st.session_state:
+            global_describe = st.session_state.source_sf.describe()
+            st.session_state.global_objects = sorted([obj['name'] for obj in global_describe['sobjects']])
             
-        # Create zip
-        zip_path = os.path.join(temp_dir, 'package.zip')
-        with zipfile.ZipFile(zip_path, 'w') as zipf:
-            zipf.write(os.path.join(temp_dir, 'package.xml'), 'package.xml')
-            zipf.write(os.path.join(temp_dir, 'objects', f'{object_name}.object'), f'objects/{object_name}.object')
-
-        # Deploy
-        # Determine if sandbox
-        is_sandbox = target_sf.query("SELECT IsSandbox FROM Organization LIMIT 1")['records'][0]['IsSandbox']
+    all_objects = st.session_state.global_objects
+    custom_objects = [obj for obj in all_objects if obj.endswith('__c')]
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Select All Custom Objects"):
+            st.session_state.obj_selection = custom_objects
+    with col2:
+        if st.button("Clear Selection"):
+            st.session_state.obj_selection = []
+            
+    if 'obj_selection' not in st.session_state:
+        st.session_state.obj_selection = []
         
-        # Note: mdapi.deploy returns an async ID. We need to wait for it.
-        deploy_result = target_sf.mdapi.deploy(zip_path, sandbox=is_sandbox, singlePackage=True, ignoreWarnings=True)
-        
-        if isinstance(deploy_result, tuple):
-            job_id = deploy_result[0]
-        elif isinstance(deploy_result, dict):
-            job_id = deploy_result.get('id')
+    selected_objects = st.multiselect("Select Objects", options=all_objects, key="obj_selection")
+    
+    if st.button("Add Checked Objects to Project"):
+        if selected_objects:
+            for obj in selected_objects:
+                add_project_object(st.session_state.current_project_id, obj)
+            st.success(f"Added {len(selected_objects)} objects to project!")
+            st.session_state.selected_objects = selected_objects
         else:
-            job_id = str(deploy_result)
+            st.warning("Please select at least one object.")
+    
+    # Run Schema Diff
+    if hasattr(st.session_state, 'selected_objects'):
+        if st.button("Run Schema Diff"):
+            with st.spinner("Analyzing Describe Metadata..."):
+                diff_df = compare_schemas(st.session_state.source_sf, st.session_state.target_sf, st.session_state.selected_objects)
+                if diff_df.empty:
+                    st.success("Schemas match perfectly! You are Ready to Migrate.")
+                else:
+                    st.warning(f"Found {len(diff_df)} schema blockers.")
+                    st.dataframe(diff_df, width='stretch')
+
+        st.markdown("---")
+        st.subheader("Universal Hierarchical Strategy")
+        st.markdown("We rely on a custom External ID (`Migration_External_ID__c`) to enforce relationship linking via Bulk API 2.0. Click below to deploy this field to your Target org for the selected objects.")
         
-        if job_id:
-            while True:
-                status_raw = target_sf.mdapi.check_deploy_status(job_id)
-                status = status_raw[0] if isinstance(status_raw, tuple) else status_raw
-                
-                # Handle dictionary semantics vs object semantics
-                done = status.get('done') if isinstance(status, dict) else getattr(status, 'done', False)
-                if done:
-                    success = status.get('success') if isinstance(status, dict) else getattr(status, 'success', False)
-                    err_msg = status.get('errorMessage') if isinstance(status, dict) else getattr(status, 'errorMessage', '')
-                    return success, err_msg
-                time.sleep(2)
-        return False, "Deployment job failed to start."
+        if st.button("Deploy External ID Fields"):
+            with st.spinner("Deploying Metadata..."):
+                for obj in st.session_state.selected_objects:
+                    success, err = deploy_external_id_field(st.session_state.target_sf, obj)
+                    if success:
+                        st.success(f"Successfully deployed `Migration_External_ID__c` to {obj}")
+                    else:
+                        st.error(f"Failed to deploy to {obj}: {err}")
