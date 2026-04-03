@@ -53,7 +53,7 @@ def render_page():
                     st.success("Schemas match perfectly! You are Ready to Migrate.")
                 else:
                     st.warning(f"Found {len(diff_df)} schema blockers.")
-                    st.dataframe(diff_df, use_container_width=True)
+                    st.dataframe(diff_df, width='stretch')
 
         st.markdown("---")
         st.subheader("Universal Hierarchical Strategy")
