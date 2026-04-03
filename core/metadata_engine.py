@@ -115,7 +115,7 @@ def deploy_external_id_field(target_sf, object_name):
         
         if job_id:
             while True:
-                status = target_sf.mdapi.checkDeployStatus(job_id)
+                status = target_sf.mdapi.check_deploy_status(job_id)
                 if status.get('done'):
                     return status.get('success'), status.get('errorMessage')
                 time.sleep(2)
