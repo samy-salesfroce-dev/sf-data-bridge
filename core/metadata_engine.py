@@ -105,7 +105,13 @@ def deploy_external_id_field(target_sf, object_name):
         
         # Note: mdapi.deploy returns an async ID. We need to wait for it.
         deploy_result = target_sf.mdapi.deploy(zip_path, sandbox=is_sandbox, singlePackage=True, ignoreWarnings=True)
-        job_id = deploy_result.get('id')
+        
+        if isinstance(deploy_result, tuple):
+            job_id = deploy_result[0]
+        elif isinstance(deploy_result, dict):
+            job_id = deploy_result.get('id')
+        else:
+            job_id = str(deploy_result)
         
         if job_id:
             while True:
