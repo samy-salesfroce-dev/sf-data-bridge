@@ -1,9 +1,6 @@
 import streamlit as st
 import os, sys
 
-# Ensure modules in the current directory can be imported
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 from database.db_handler import init_db
 
 # Page Configuration for Premium Feel
