@@ -115,8 +115,14 @@ def deploy_external_id_field(target_sf, object_name):
         
         if job_id:
             while True:
-                status = target_sf.mdapi.check_deploy_status(job_id)
-                if status.get('done'):
-                    return status.get('success'), status.get('errorMessage')
+                status_raw = target_sf.mdapi.check_deploy_status(job_id)
+                status = status_raw[0] if isinstance(status_raw, tuple) else status_raw
+                
+                # Handle dictionary semantics vs object semantics
+                done = status.get('done') if isinstance(status, dict) else getattr(status, 'done', False)
+                if done:
+                    success = status.get('success') if isinstance(status, dict) else getattr(status, 'success', False)
+                    err_msg = status.get('errorMessage') if isinstance(status, dict) else getattr(status, 'errorMessage', '')
+                    return success, err_msg
                 time.sleep(2)
         return False, "Deployment job failed to start."
