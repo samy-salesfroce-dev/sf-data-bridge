@@ -91,14 +91,14 @@ def render_page():
                             
                             if success_count > 0:
                                 st.success(f"Successfully deployed {success_count} components!")
+                                # Clear the diff state to force a re-run
+                                del st.session_state.diff_df
+                                st.info("Deployment successful! NOTE: Salesforce's API Cache can take 30-60 seconds to reflect new fields. If you run 'Schema Diff' immediately and the field still appears 'missing', please wait one minute and try again.")
+                                st.rerun()
                             
                             if errors:
                                 for err in errors:
                                     st.error(err)
-                                    
-                            # Clear results to force refresh on next run
-                            if success_count > 0:
-                                st.info("Re-run 'Schema Diff' to verify changes.")
 
         st.markdown("---")
         st.subheader("Universal Hierarchical Strategy")
