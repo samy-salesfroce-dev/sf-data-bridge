@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from core.metadata_engine import compare_schemas, deploy_external_id_field, deploy_selected_metadata
+from core.metadata_engine import compare_schemas, deploy_external_id_field, deploy_selected_metadata, get_external_id_candidates
 from database.db_handler import add_project_object
 
 def render_page():
@@ -101,14 +101,48 @@ def render_page():
                                     st.error(err)
 
         st.markdown("---")
-        st.subheader("Universal Hierarchical Strategy")
-        st.markdown("We rely on a custom External ID (`Migration_External_ID__c`) to enforce relationship linking via Bulk API 2.0. Click below to deploy this field to your Target org for the selected objects.")
+        st.subheader("🛠️ External ID Strategy")
+        st.markdown("""
+        We require a unique **External ID** field to perform relationship mapping and avoid duplicates during data migration. 
+        Choose an existing External ID or let us create a new one for you.
+        """)
         
-        if st.button("Deploy External ID Fields"):
-            with st.spinner("Deploying Metadata..."):
-                for obj in st.session_state.selected_objects:
-                    success, err = deploy_external_id_field(st.session_state.target_sf, obj)
-                    if success:
-                        st.success(f"Successfully deployed `Migration_External_ID__c` to {obj}")
-                    else:
-                        st.error(f"Failed to deploy to {obj}: {err}")
+        if 'obj_strategies' not in st.session_state:
+            st.session_state.obj_strategies = {}
+
+        for obj in st.session_state.selected_objects:
+            with st.expander(f"Strategy for `{obj}`", expanded=True):
+                candidates = get_external_id_candidates(st.session_state.target_sf, obj)
+                options = candidates + ["Create New: Migration_External_ID__c"]
+                
+                # Determine default index
+                default_idx = 0
+                if "Migration_External_ID__c" in candidates:
+                    default_idx = candidates.index("Migration_External_ID__c")
+                elif not candidates:
+                    default_idx = len(options) - 1
+                
+                selected_field = st.radio(
+                    f"Select System Key for {obj}",
+                    options=options,
+                    index=default_idx,
+                    key=f"strat_{obj}",
+                    horizontal=True
+                )
+                
+                st.session_state.obj_strategies[obj] = selected_field
+                
+                if selected_field == "Create New: Migration_External_ID__c":
+                    if st.button(f"Deploy to {obj}", key=f"btn_{obj}"):
+                        with st.spinner(f"Deploying to {obj}..."):
+                            success, err = deploy_external_id_field(st.session_state.target_sf, obj)
+                            if success:
+                                st.success(f"Successfully configured `{obj}`!")
+                                st.rerun()
+                            else:
+                                st.error(f"Error on {obj}: {err}")
+                else:
+                    st.info(f"Targeting existing field: `{selected_field}`")
+
+        if st.session_state.obj_strategies:
+            st.success("✅ External ID Strategy configurations saved for all objects.")
