@@ -40,14 +40,35 @@ def render_page():
             
         st.success("Migration Process Concluded!")
         
-        st.markdown("### Migration Audit Report")
         if not audit_df.empty:
-            st.dataframe(audit_df, use_container_width=True)
+            st.markdown("### 📊 Migration Summary")
+            col1, col2, col3 = st.columns(3)
+            total = len(audit_df)
+            successes = len(audit_df[audit_df['Status'] == 'Success'])
+            errors = len(audit_df[audit_df['Status'] == 'Error'])
             
-            # Interactive HTML rendering or CSV download
+            col1.metric("Total Records", total)
+            col2.metric("Success ✅", successes)
+            col3.metric("Errors ❌", errors, delta=-errors if errors > 0 else 0, delta_color="inverse")
+            
+            st.markdown("---")
+            st.markdown("### 🔍 Detailed Audit Log")
+            
+            # Filter options
+            view_mode = st.radio("View records:", ["All", "Errors Only", "Success Only"], horizontal=True)
+            if view_mode == "Errors Only":
+                display_df = audit_df[audit_df['Status'] == 'Error']
+            elif view_mode == "Success Only":
+                display_df = audit_df[audit_df['Status'] == 'Success']
+            else:
+                display_df = audit_df
+                
+            st.dataframe(display_df, use_container_width=True)
+            
+            # CSV download
             csv = audit_df.to_csv(index=False).encode('utf-8')
             st.download_button(
-                "Download Audit Report (CSV)",
+                "📥 Download Full Audit Report (CSV)",
                 csv,
                 "migration_audit_report.csv",
                 "text/csv",
