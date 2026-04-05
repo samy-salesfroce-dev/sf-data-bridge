@@ -115,18 +115,40 @@ def execute_migration(source_sf, target_sf, project_id, dry_run=True, progress_c
             # Use Bulk API 1.0 via simple-salesforce bulk interface
             bulk_res = getattr(target_sf.bulk, obj).upsert(transformed_payloads, 'Migration_External_ID__c')
             
-            for res in bulk_res:
+            for i, res in enumerate(bulk_res):
+                # Map back to source ID for audit trail
+                source_id = transformed_payloads[i].get('Migration_External_ID__c', 'Unknown')
+                
                 if res['success']:
-                    success_cnt += 1
+                    audit_report.append({
+                        "Object": obj,
+                        "Source_ID": source_id,
+                        "Target_ID": res.get('id'),
+                        "Status": "Success",
+                        "Message": "Created" if res.get('created') else "Updated"
+                    })
                 else:
-                    error_cnt += 1
+                    err_msgs = [e.get('message', 'Unknown Error') for e in res.get('errors', [])]
+                    err_full = "; ".join(err_msgs) if err_msgs else "Unknown Error"
+                    audit_report.append({
+                        "Object": obj,
+                        "Source_ID": source_id,
+                        "Target_ID": "N/A",
+                        "Status": "Error",
+                        "Message": err_full
+                    })
                     
-            if log_cb: log_cb(f"Upsert Complete. Success: {success_cnt}, Errors: {error_cnt}")
-            audit_report.append({"Object": obj, "Attempted": len(transformed_payloads), "Success": success_cnt, "Errors": error_cnt})
+            if log_cb: log_cb(f"Batch for {obj} completed.")
             
         except Exception as e:
             if log_cb: log_cb(f"CRITICAL ERROR during Upsert of {obj}: {e}")
-            audit_report.append({"Object": obj, "Attempted": len(transformed_payloads), "Success": 0, "Errors": len(transformed_payloads), "Message": str(e)})
+            audit_report.append({
+                "Object": obj, 
+                "Source_ID": "BATCH_ERROR", 
+                "Target_ID": "N/A", 
+                "Status": "Error", 
+                "Message": str(e)
+            })
 
     if progress_cb: progress_cb(1.0)
     if log_cb: log_cb("Migration Execution Complete!")
