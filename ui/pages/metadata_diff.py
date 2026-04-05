@@ -115,6 +115,15 @@ def render_page():
                     
                     st.dataframe(res_df.style.applymap(color_status, subset=['Status']), width='stretch')
                     
+                    # Store CSV string for download
+                    csv = res_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Download Detailed Report (CSV)",
+                        data=csv,
+                        file_name='metadata_deployment_report.csv',
+                        mime='text/csv',
+                    )
+                    
                     if st.button("Clear Report"):
                         del st.session_state.deployment_results
                         st.rerun()
