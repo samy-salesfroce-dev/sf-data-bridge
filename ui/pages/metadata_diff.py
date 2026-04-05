@@ -83,22 +83,41 @@ def render_page():
                         st.warning("Please select at least one component to deploy.")
                     else:
                         with st.spinner("Deploying via Tooling API..."):
-                            success_count, errors = deploy_selected_metadata(
+                            results = deploy_selected_metadata(
                                 st.session_state.source_sf, 
                                 st.session_state.target_sf, 
                                 selected_rows
                             )
+                            st.session_state.deployment_results = results
                             
-                            if success_count > 0:
-                                st.success(f"Successfully deployed {success_count} components!")
+                            # Calculate stats
+                            successes = len([r for r in results if r['Status'] == 'Success'])
+                            errors = len([r for r in results if r['Status'] == 'Error'])
+                            
+                            if successes > 0:
+                                st.success(f"Deployment complete: {successes} Success, {errors} Errors")
                                 # Clear the diff state to force a re-run
-                                del st.session_state.diff_df
-                                st.info("Deployment successful! NOTE: Salesforce's API Cache can take 30-60 seconds to reflect new fields. If you run 'Schema Diff' immediately and the field still appears 'missing', please wait one minute and try again.")
-                                st.rerun()
-                            
-                            if errors:
-                                for err in errors:
-                                    st.error(err)
+                                if 'diff_df' in st.session_state:
+                                    del st.session_state.diff_df
+                                st.info("NOTE: Salesforce's API Cache can take 30-60 seconds to reflect new fields.")
+                            else:
+                                st.error(f"Deployment failed with {errors} errors.")
+
+                # Display Detailed Results
+                if 'deployment_results' in st.session_state:
+                    st.markdown("### 📊 Detailed Deployment Report")
+                    res_df = pd.DataFrame(st.session_state.deployment_results)
+                    
+                    # Highlight status
+                    def color_status(val):
+                        color = '#2ecc71' if val == 'Success' else '#e74c3c'
+                        return f'color: {color}; font-weight: bold'
+                    
+                    st.dataframe(res_df.style.applymap(color_status, subset=['Status']), width='stretch')
+                    
+                    if st.button("Clear Report"):
+                        del st.session_state.deployment_results
+                        st.rerun()
 
         st.markdown("---")
         st.subheader("🛠️ External ID Strategy")
