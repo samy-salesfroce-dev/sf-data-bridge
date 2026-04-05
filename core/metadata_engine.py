@@ -168,11 +168,15 @@ def deploy_selected_metadata(source_sf, target_sf, selected_rows):
                 "Metadata": metadata
             }
             
-            # Use json= instead of data= to ensure application/json content type
             target_sf.toolingexecute('sobjects/CustomField/', method='POST', json=payload)
             success_count += 1
             
         except Exception as e:
-            errors.append(f"Field {field} on {obj}: {str(e)}")
+            err_str = str(e)
+            if "DUPLICATE_DEVELOPER_NAME" in err_str:
+                # Treat as success if the field already exists as intended
+                success_count += 1
+            else:
+                errors.append(f"Field {field} on {obj}: {err_str}")
             
     return success_count, errors
