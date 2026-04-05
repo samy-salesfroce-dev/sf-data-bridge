@@ -97,9 +97,9 @@ def deploy_external_id_field(target_sf, object_name):
 def deploy_selected_metadata(source_sf, target_sf, selected_rows):
     """
     Deploys selected custom fields from Source to Target using Tooling API.
+    Returns a list of detailed results.
     """
-    success_count = 0
-    errors = []
+    results = []
     
     for row in selected_rows:
         if not row.get('Deploy') or not row.get('Is_Custom'):
@@ -108,38 +108,46 @@ def deploy_selected_metadata(source_sf, target_sf, selected_rows):
         obj = row['Object']
         field = row['Field Name']
         
+        result = {
+            "Object": obj,
+            "Field": field,
+            "Status": "Success",
+            "Message": "Metadata deployed successfully."
+        }
+        
         try:
             # 1. Fetch Metadata from Source
             dev_name = field.replace('__c', '')
-            # Tooling API query needs to be URL encoded or handled by tooling_execute logic
-            # simple-salesforce toolingexecute doesn't automatically urlencode the 'action' string if it's a query
             query = f"SELECT Metadata FROM CustomField WHERE DeveloperName='{dev_name}' AND TableEnumOrId='{obj}'"
             encoded_query = query.replace(' ', '+').replace("'", "%27")
             res = source_sf.toolingexecute(f"query?q={encoded_query}")
             
             if not res.get('records'):
-                errors.append(f"Field {field} on {obj}: Not found in Source Tooling metadata.")
+                result["Status"] = "Error"
+                result["Message"] = "Field metadata not found in Source Tooling metadata."
+                results.append(result)
                 continue
                 
             metadata = res['records'][0]['Metadata']
             
             # 2. Deploy to Target
             full_name = f"{obj}.{field}"
-            # Tooling API POST for CustomField
             payload = {
                 "FullName": full_name,
                 "Metadata": metadata
             }
             
             target_sf.toolingexecute('sobjects/CustomField/', method='POST', json=payload)
-            success_count += 1
+            results.append(result)
             
         except Exception as e:
             err_str = str(e)
             if "DUPLICATE_DEVELOPER_NAME" in err_str:
-                # Treat as success if the field already exists as intended
-                success_count += 1
+                result["Message"] = "Field already exists on Target (No change needed)."
+                results.append(result)
             else:
-                errors.append(f"Field {field} on {obj}: {err_str}")
+                result["Status"] = "Error"
+                result["Message"] = err_str
+                results.append(result)
             
-    return success_count, errors
+    return results
