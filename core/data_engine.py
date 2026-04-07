@@ -60,8 +60,9 @@ def execute_migration(source_sf, target_sf, project_id, dry_run=True, progress_c
         # Dynamically determine valid fields for this target object
         try:
             describe_res = getattr(target_sf, obj).describe()
-            # Valid fields are those that can be created OR updated
-            valid_target_fields = {f['name'] for f in describe_res['fields'] if f.get('createable') or f.get('updateable')}
+            # Valid fields are those that can be BOTH created AND updated
+            # (Upsert will fail if a field is only one but the operation triggers the other)
+            valid_target_fields = {f['name'] for f in describe_res['fields'] if f.get('createable') and f.get('updateable')}
             # Ensure our external ID is always valid
             valid_target_fields.add('Migration_External_ID__c')
         except Exception as e:
