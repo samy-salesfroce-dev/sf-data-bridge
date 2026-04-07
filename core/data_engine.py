@@ -57,6 +57,17 @@ def execute_migration(source_sf, target_sf, project_id, dry_run=True, progress_c
             
         source_fields = [m['source_field'] for m in mappings]
         
+        # Dynamically determine valid fields for this target object
+        try:
+            describe_res = getattr(target_sf, obj).describe()
+            # Valid fields are those that can be created OR updated
+            valid_target_fields = {f['name'] for f in describe_res['fields'] if f.get('createable') or f.get('updateable')}
+            # Ensure our external ID is always valid
+            valid_target_fields.add('Migration_External_ID__c')
+        except Exception as e:
+            if log_cb: log_cb(f"Warning: Could not fetch describe for {obj}, skipping field validation. {e}")
+            valid_target_fields = None
+        
         # Extract Data
         ext_limit = 50 if dry_run else None
         if log_cb: log_cb(f"Extracting records for {obj} (Limit: {ext_limit if dry_run else 'All'})...")
@@ -77,6 +88,11 @@ def execute_migration(source_sf, target_sf, project_id, dry_run=True, progress_c
             for m in mappings:
                 s_field = m['source_field']
                 t_field = m['target_field']
+                
+                # Exclude invalid fields automatically (like system fields or compound Name/Address)
+                if valid_target_fields is not None and t_field not in valid_target_fields:
+                    continue
+                    
                 tx_logic = m.get('transformation_logic')
                 
                 val = rec.get(s_field)
