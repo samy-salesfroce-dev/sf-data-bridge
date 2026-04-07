@@ -98,6 +98,10 @@ def execute_migration(source_sf, target_sf, project_id, dry_run=True, progress_c
                 # This needs deeper handling for a raw production engine, for now we will just attempt the upload.
                 pass
                 
+            # Remove 'Id' from payload as it cannot be specified in an insert/upsert call
+            # when matching against an External ID.
+            payload.pop('Id', None)
+            
             transformed_payloads.append(payload)
             
         # 3. Upsert via Bulk API (or REST for small batches)
