@@ -99,8 +99,10 @@ def execute_migration(source_sf, target_sf, project_id, dry_run=True, progress_c
                 pass
                 
             # Remove 'Id' from payload as it cannot be specified in an insert/upsert call
-            # when matching against an External ID.
-            payload.pop('Id', None)
+            # when matching against an External ID. Check case-insensitively.
+            keys_to_remove = [k for k in payload.keys() if k.lower() == 'id']
+            for k in keys_to_remove:
+                payload.pop(k, None)
             
             transformed_payloads.append(payload)
             
