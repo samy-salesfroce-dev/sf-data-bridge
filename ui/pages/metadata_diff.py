@@ -141,13 +141,17 @@ def render_page():
         for obj in st.session_state.selected_objects:
             with st.expander(f"Strategy for `{obj}`", expanded=True):
                 candidates = get_external_id_candidates(st.session_state.target_sf, obj)
-                options = candidates + ["Create New: Migration_External_ID__c"]
+                options = list(candidates)
+                
+                # Only offer the 'Create New' option if the field doesn't already exist
+                if "Migration_External_ID__c" not in candidates:
+                    options.append("Create New: Migration_External_ID__c")
                 
                 # Determine default index
                 default_idx = 0
                 if "Migration_External_ID__c" in candidates:
                     default_idx = candidates.index("Migration_External_ID__c")
-                elif not candidates:
+                else:
                     default_idx = len(options) - 1
                 
                 selected_field = st.radio(
